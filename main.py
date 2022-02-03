@@ -16,5 +16,6 @@ if __name__ == '__main__':
     parser.add_argument('--dim', type=int, required=True, help='expected vector dimension; all non-compliant entry will be ignored')
     parser.add_argument('--backend', choices=['pytorch', 'faiss'], default='pytorch',
                         help='brute force search backend')
+    parser.add_argument('--gpu', action='store_true', help='use gpu')
 
     args = parser.parse_args()

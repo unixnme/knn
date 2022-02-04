@@ -1,4 +1,5 @@
 import argparse
+import sys
 import numpy as np
 
 
@@ -97,12 +98,8 @@ def read_batch_from_file(filename:str, batch_size:int, sep:str):
         yield ids, np.stack(vectors, axis=0)
 
 
-
 def estimate_memory(n_q:int, n_db:int, dim:int):
     return ((n_q + n_db) * dim + n_q * n_db) * 4 / 1e9
-
-
-
 
 
 def write_out(result):
@@ -146,6 +143,7 @@ if __name__ == '__main__':
         import torch
 
     shards = []
+    solver = None
     for db in read_batch_from_file(args.db_file, args.shard_size, args.sep):
         db = change_type(*db, args.backend)
         if args.backend == 'faiss':
@@ -156,5 +154,8 @@ if __name__ == '__main__':
             q = change_type(*q, args.backend)
             shards.append(solver.find(*q))
 
+    if solver is None:
+        print("No query or db vectors", file=sys.stderr)
+        exit(-1)
     result = solver.merge_shards(shards)
     write_out(result)

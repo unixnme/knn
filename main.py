@@ -58,6 +58,28 @@ class FaissNearestNeighborBatch(NearestNeighborBatch):
         return self.format(D, I, qids)
 
 
+class PytorchNearestNeighborBatch(NearestNeighborBatch):
+    def __init__(self, db_ids, db, k:int):
+        assert isinstance(db, torch.FloatTensor)
+        super().__init__(db_ids, db, k)
+        self.db = self.db.t()
+
+    def find(self, qids, query):
+        '''
+        :param qids: list of ids
+        :param query: torch tensor of query vectors
+        '''
+        D, I = torch.topk(query @ self.db, self.k, dim=-1)
+        return self.format(D.numpy(), I.numpy(), qids)
+
+
+def change_type(ids, vector:np.ndarray, backend:str):
+    if backend == 'faiss':
+        return ids, vector
+    elif backend == 'pytorch':
+        return ids, torch.from_numpy(vector)
+
+
 def read_batch_from_file(filename:str, batch_size:int, sep:str):
     with open(filename, 'r', encoding='utf-8') as f:
         ids, vectors = [], []
@@ -125,11 +147,13 @@ if __name__ == '__main__':
 
     shards = []
     for db in read_batch_from_file(args.db_file, args.shard_size, args.sep):
+        db = change_type(*db, args.backend)
         if args.backend == 'faiss':
             solver = FaissNearestNeighborBatch(*db, args.topk)
         else:
-            raise NotImplementedError
+            solver = PytorchNearestNeighborBatch(*db, args.topk)
         for q in read_batch_from_file(args.query_file, args.batch_size, args.sep):
+            q = change_type(*q, args.backend)
             shards.append(solver.find(*q))
 
     result = solver.merge_shards(shards)

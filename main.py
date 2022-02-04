@@ -23,17 +23,23 @@ class NearestNeighborBatch:
         '''
         raise NotImplementedError
 
+    def format(self, I, qids):
+        k = I.shape[1]
+        qids = np.asarray(qids)
+        db_ids = np.asarray(self.db_ids)[I]
+        return np.stack([qids.repeat(k), db_ids.reshape(-1)], axis=1)
+
 
 class FaissNearestNeighborBatch(NearestNeighborBatch):
     def __init__(self, db_ids, db):
         assert isinstance(db, np.ndarray)
         super().__init__(db_ids, db)
 
-    def topk(self, qid, query, k:int):
+    def topk(self, qids, query, k:int):
         index = faiss.IndexFlatL2(self.dim)
         index.add(self.db)
         D, I = index.search(query, k)
-        return I
+        return self.format(I, qids)
 
 
 def read_batch_from_file(filename:str, batch_size:int, sep:str):
@@ -55,6 +61,14 @@ def read_batch_from_file(filename:str, batch_size:int, sep:str):
 
 def estimate_memory(n_q:int, n_db:int, dim:int):
     return ((n_q + n_db) * dim + n_q * n_db) * 4 / 1e9
+
+
+def write_out(result):
+    '''
+    :param result: array of (qid, urlhash)
+    '''
+    for qid, urlhash in result:
+        print(f'{qid}\t{urlhash}')
 
 
 if __name__ == '__main__':
@@ -93,4 +107,5 @@ if __name__ == '__main__':
         else:
             raise NotImplementedError
         for q in read_batch_from_file(args.query_file, args.batch_size, args.sep):
-            idx = solver.topk(*q, args.topk)
+            result = solver.topk(*q, args.topk)
+            write_out(result)

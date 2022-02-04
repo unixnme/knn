@@ -37,10 +37,12 @@ class NearestNeighborBatch:
         result = []
         shards = np.stack(shards, axis=-1)
         for start in range(0, len(shards), self.k):
+            qids = shards[start:start+self.k, 0, 0]
             urlhash = shards[start:start+self.k, 1]
+            values = shards[start:start+self.k, -1]
             idx = np.argsort(shards[start:start+self.k, -1].astype(np.float32).reshape(-1))[::-1]
-            result.append(urlhash.reshape(-1)[idx[:self.k]])
-        return np.stack((shards[:,0,0], np.stack(result, axis=0).reshape(-1)), axis=1)
+            result.append((qids, urlhash.reshape(-1)[idx[:self.k]], values.reshape(-1)[idx[:self.k]]))
+        return np.asarray(result).transpose((0,2,1)).reshape(-1, 3)
 
 
 
@@ -85,8 +87,8 @@ def write_out(result):
     '''
     :param result: array of (qid, urlhash)
     '''
-    for qid, urlhash in result:
-        print(f'{qid}\t{urlhash}')
+    for line in result:
+        print('\t'.join(line))
 
 
 if __name__ == '__main__':

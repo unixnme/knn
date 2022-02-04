@@ -3,7 +3,7 @@ import numpy as np
 
 
 class NearestNeighborBatch:
-    def __init__(self, db_ids, db):
+    def __init__(self, db_ids, db, k:int):
         '''
         :param db_ids: unique id for each db vector
         :param db: [db_size, dim] vector array
@@ -13,33 +13,47 @@ class NearestNeighborBatch:
         self.db = db
         self.db_size = len(db)
         self.dim = len(db[0])
+        self.k = k
 
-    def topk(self, qid, query, k:int):
+    def find(self, qid, query):
         '''
 
         :param qid: unique query id for each query vector
         :param query: [q_size, dm] vector array
-        :param k: top k ids
         '''
         raise NotImplementedError
 
-    def format(self, I, qids):
-        k = I.shape[1]
+    def format(self, D, I, qids):
         qids = np.asarray(qids)
         db_ids = np.asarray(self.db_ids)[I]
-        return np.stack([qids.repeat(k), db_ids.reshape(-1)], axis=1)
+        return np.stack([qids.repeat(self.k), db_ids.reshape(-1), D.reshape(-1)], axis=1)
+
+    def merge_shards(self, shards):
+        '''
+        :param shards: array of shard, where each shard has the form
+            [qid, urlhash, inner_product] repeated by k
+        :return: [qid, urlhash] repeated by k
+        '''
+        result = []
+        shards = np.stack(shards, axis=-1)
+        for start in range(0, len(shards), self.k):
+            urlhash = shards[start:start+self.k, 1]
+            idx = np.argsort(shards[start:start+self.k, -1].astype(np.float32).reshape(-1))[::-1]
+            result.append(urlhash.reshape(-1)[idx[:self.k]])
+        return np.stack((shards[:,0,0], np.stack(result, axis=0).reshape(-1)), axis=1)
+
 
 
 class FaissNearestNeighborBatch(NearestNeighborBatch):
-    def __init__(self, db_ids, db):
+    def __init__(self, db_ids, db, k:int):
         assert isinstance(db, np.ndarray)
-        super().__init__(db_ids, db)
+        super().__init__(db_ids, db, k)
 
-    def topk(self, qids, query, k:int):
-        index = faiss.IndexFlatL2(self.dim)
+    def find(self, qids, query):
+        index = faiss.IndexFlatIP(self.dim)
         index.add(self.db)
-        D, I = index.search(query, k)
-        return self.format(I, qids)
+        D, I = index.search(query, self.k)
+        return self.format(D, I, qids)
 
 
 def read_batch_from_file(filename:str, batch_size:int, sep:str):
@@ -59,8 +73,12 @@ def read_batch_from_file(filename:str, batch_size:int, sep:str):
         yield ids, np.stack(vectors, axis=0)
 
 
+
 def estimate_memory(n_q:int, n_db:int, dim:int):
     return ((n_q + n_db) * dim + n_q * n_db) * 4 / 1e9
+
+
+
 
 
 def write_out(result):
@@ -77,6 +95,7 @@ if __name__ == '__main__':
         'sep': '|',
         'topk': 5,
         'max_mem': 16,
+        'shard_size': 1000,
     }
 
     parser = argparse.ArgumentParser('brute force nearest neighbor search')
@@ -84,6 +103,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=default_config['batch_size'],
                         help=f'query batch size; default: {default_config["batch_size"]}')
     parser.add_argument('--db_file', required=True)
+    parser.add_argument('--shard_size', type=int, default=default_config['shard_size'])
     parser.add_argument('--sep', default=default_config['sep'],
                         help=f'separator for vector representation; default: {default_config["sep"]}')
     parser.add_argument('--dim', type=int, required=True, help='expected vector dimension; all non-compliant entry will be ignored')
@@ -101,11 +121,14 @@ if __name__ == '__main__':
     else:
         import torch
 
-    for db in read_batch_from_file(args.db_file, 1000, args.sep):
+    shards = []
+    for db in read_batch_from_file(args.db_file, args.shard_size, args.sep):
         if args.backend == 'faiss':
-            solver = FaissNearestNeighborBatch(*db)
+            solver = FaissNearestNeighborBatch(*db, args.topk)
         else:
             raise NotImplementedError
         for q in read_batch_from_file(args.query_file, args.batch_size, args.sep):
-            result = solver.topk(*q, args.topk)
-            write_out(result)
+            shards.append(solver.find(*q))
+
+    result = solver.merge_shards(shards)
+    write_out(result)

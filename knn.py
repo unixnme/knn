@@ -20,7 +20,7 @@ class NearestNeighborBatch:
         '''
 
         :param qid: unique query id for each query vector
-        :param query: [q_size, dm] vector array
+        :param query: [q_size, dim] vector array
         '''
         raise NotImplementedError
 
@@ -32,19 +32,18 @@ class NearestNeighborBatch:
 def merge_shards(shards, k:int):
     '''
     :param shards: array of shard, where each shard has the form
-        [qid, urlhash, inner_product] repeated by k
-    :return: [qid, urlhash] repeated by k
+        [qid, db_id, inner_product] repeated by k
+    :return: [qid, db_id, inner_product] repeated by k
     '''
     result = []
     shards = np.stack(shards, axis=-1)
     for start in range(0, len(shards), k):
         qids = shards[start:start+k, 0, 0]
-        urlhash = shards[start:start+k, 1]
+        db_ids = shards[start:start+k, 1]
         values = shards[start:start+k, -1]
         idx = np.argsort(shards[start:start+k, -1].astype(np.float32).reshape(-1))[::-1]
-        result.append((qids, urlhash.reshape(-1)[idx[:k]], values.reshape(-1)[idx[:k]]))
+        result.append((qids, db_ids.reshape(-1)[idx[:k]], values.reshape(-1)[idx[:k]]))
     return np.asarray(result).transpose((0,2,1)).reshape(-1, 3)
-
 
 
 class FaissNearestNeighborBatch(NearestNeighborBatch):
@@ -104,7 +103,7 @@ def estimate_memory(n_q:int, n_db:int, dim:int):
 
 def write_out(result):
     '''
-    :param result: array of (qid, urlhash)
+    :param result: array of (qid, db_hash)
     '''
     for line in result:
         print('\t'.join(line))

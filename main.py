@@ -29,21 +29,21 @@ class NearestNeighborBatch:
         db_ids = np.asarray(self.db_ids)[I]
         return np.stack([qids.repeat(self.k), db_ids.reshape(-1), D.reshape(-1)], axis=1)
 
-    def merge_shards(self, shards):
-        '''
-        :param shards: array of shard, where each shard has the form
-            [qid, urlhash, inner_product] repeated by k
-        :return: [qid, urlhash] repeated by k
-        '''
-        result = []
-        shards = np.stack(shards, axis=-1)
-        for start in range(0, len(shards), self.k):
-            qids = shards[start:start+self.k, 0, 0]
-            urlhash = shards[start:start+self.k, 1]
-            values = shards[start:start+self.k, -1]
-            idx = np.argsort(shards[start:start+self.k, -1].astype(np.float32).reshape(-1))[::-1]
-            result.append((qids, urlhash.reshape(-1)[idx[:self.k]], values.reshape(-1)[idx[:self.k]]))
-        return np.asarray(result).transpose((0,2,1)).reshape(-1, 3)
+def merge_shards(shards, k:int):
+    '''
+    :param shards: array of shard, where each shard has the form
+        [qid, urlhash, inner_product] repeated by k
+    :return: [qid, urlhash] repeated by k
+    '''
+    result = []
+    shards = np.stack(shards, axis=-1)
+    for start in range(0, len(shards), k):
+        qids = shards[start:start+k, 0, 0]
+        urlhash = shards[start:start+k, 1]
+        values = shards[start:start+k, -1]
+        idx = np.argsort(shards[start:start+k, -1].astype(np.float32).reshape(-1))[::-1]
+        result.append((qids, urlhash.reshape(-1)[idx[:k]], values.reshape(-1)[idx[:k]]))
+    return np.asarray(result).transpose((0,2,1)).reshape(-1, 3)
 
 
 
@@ -143,19 +143,20 @@ if __name__ == '__main__':
         import torch
 
     shards = []
-    solver = None
+    if args.backend == "faiss":
+        Solver = FaissNearestNeighborBatch
+    elif args.backend == "pytorch":
+        Solver = PytorchNearestNeighborBatch
+    else:
+        raise ValueError
+
     for db in read_batch_from_file(args.db_file, args.shard_size, args.sep):
         db = change_type(*db, args.backend)
-        if args.backend == 'faiss':
-            solver = FaissNearestNeighborBatch(*db, args.topk)
-        else:
-            solver = PytorchNearestNeighborBatch(*db, args.topk)
+        solver = Solver(*db, args.topk)
+        q_batch_result = []
         for q in read_batch_from_file(args.query_file, args.batch_size, args.sep):
             q = change_type(*q, args.backend)
-            shards.append(solver.find(*q))
-
-    if solver is None:
-        print("No query or db vectors", file=sys.stderr)
-        exit(-1)
-    result = solver.merge_shards(shards)
+            q_batch_result.append(solver.find(*q))
+        shards.append(np.concatenate(q_batch_result))
+    result = merge_shards(shards, args.topk)
     write_out(result)

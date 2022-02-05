@@ -150,11 +150,15 @@ if __name__ == '__main__':
     else:
         raise ValueError
 
-    for db in read_batch_from_file(args.db_file, args.shard_size, args.sep):
+    print(f"estimate mem: {estimate_memory(args.batch_size, args.shard_size, args.dim):.2f}GB", file=sys.stderr)
+
+    for shard_idx, db in enumerate(read_batch_from_file(args.db_file, args.shard_size, args.sep)):
+        print(f"processing shard {shard_idx}...", file=sys.stderr)
         db = change_type(*db, args.backend)
         solver = Solver(*db, args.topk)
         q_batch_result = []
-        for q in read_batch_from_file(args.query_file, args.batch_size, args.sep):
+        for qbatch_idx, q in enumerate(read_batch_from_file(args.query_file, args.batch_size, args.sep)):
+            print(f"processing query batch {qbatch_idx}...", file=sys.stderr)
             q = change_type(*q, args.backend)
             q_batch_result.append(solver.find(*q))
         shards.append(np.concatenate(q_batch_result))

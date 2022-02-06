@@ -13,7 +13,7 @@ class Processor:
 
     def process(self, line:str):
         tokens = line.split('\t')
-        return tokens[0], (float(x) for x in tokens[1].split('|'))
+        return tokens[0], tuple(float(x) for x in tokens[1].split('|'))
 
 
 class SingleProcessor(Processor):
@@ -36,11 +36,27 @@ class SingleProcessor(Processor):
         return result
 
 
-def process(line:str):
-    tokens = line.split('\t')
-    id = tokens[0]
-    vector = [float(x) for x in tokens[1].split('|')]
-    return id, vector
+class PoolProcessor(Processor):
+    def __init__(self, input_file:str, batch_size:int, nproc:int):
+        super().__init__(input_file, batch_size)
+        self.nproc = nproc
+
+    def run(self):
+        result = []
+        with mp.Pool(self.nproc) as pool:
+            with open(self.filename, 'r', encoding='utf-8') as f:
+                lines = []
+                for idx, line in enumerate(f):
+                    lines.append(line)
+
+                    if len(lines) >= self.batch_size:
+                        result.append(pool.map(self.process, lines))
+                        lines = []
+
+            if len(lines) > 0:
+                result.append(pool.map(self.process, lines))
+
+        return result
 
 
 if __name__ == "__main__":
@@ -53,4 +69,4 @@ if __name__ == "__main__":
     if args.nproc <= 0:
         result = SingleProcessor(args.input_file, args.batch_size).run()
     else:
-        pass
+        result = PoolProcessor(args.input_file, args.batch_size, args.nproc).run()

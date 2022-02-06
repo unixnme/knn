@@ -20,18 +20,16 @@ class SingleProcessor(Processor):
     def run(self):
         result = []
         with open(self.filename, 'r', encoding='utf-8') as f:
-            ids, batch = [], []
+            batch = []
             for idx, line in enumerate(f):
-                id, vector = self.process(line)
-                ids.append(id)
-                batch.append(vector)
+                batch.append(self.process(line))
 
-                if len(ids) >= self.batch_size:
-                    result.append((ids, np.asarray(batch)))
-                    ids, batch = [], []
+                if len(batch) >= self.batch_size:
+                    result.append(batch)
+                    batch = []
 
-        if len(ids) > 0:
-            result.append((ids, np.asarray(batch)))
+        if len(batch) > 0:
+            result.append(batch)
 
         return result
 
@@ -70,3 +68,4 @@ if __name__ == "__main__":
         result = SingleProcessor(args.input_file, args.batch_size).run()
     else:
         result = PoolProcessor(args.input_file, args.batch_size, args.nproc).run()
+    print(result)

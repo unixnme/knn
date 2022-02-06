@@ -25,11 +25,11 @@ class SingleProcessor(Processor):
                 batch.append(self.process(line))
 
                 if len(batch) >= self.batch_size:
-                    result.append(batch)
+                    result.append(tuple(zip(*batch)))
                     batch = []
 
         if len(batch) > 0:
-            result.append(batch)
+            result.append(tuple(zip(*batch)))
 
         return result
 
@@ -48,11 +48,11 @@ class PoolProcessor(Processor):
                     lines.append(line)
 
                     if len(lines) >= self.batch_size:
-                        result.append(pool.map(self.process, lines))
+                        result.append(tuple(zip(*pool.map(self.process, lines))))
                         lines = []
 
             if len(lines) > 0:
-                result.append(pool.map(self.process, lines))
+                result.append(tuple(zip(*pool.map(self.process, lines))))
 
         return result
 

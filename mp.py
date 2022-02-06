@@ -11,9 +11,12 @@ class Processor:
     def run(self):
         raise NotImplementedError
 
-    def process(self, line:str):
+    def preprocess(self, line:str):
         tokens = line.split('\t')
         return tokens[0], tuple(float(x) for x in tokens[1].split('|'))
+
+    def batch_process(self, ids, vectors):
+        return np.asarray(ids), np.asarray(vectors)
 
 
 class SingleProcessor(Processor):
@@ -22,7 +25,7 @@ class SingleProcessor(Processor):
         with open(self.filename, 'r', encoding='utf-8') as f:
             batch = []
             for idx, line in enumerate(f):
-                batch.append(self.process(line))
+                batch.append(self.preprocess(line))
 
                 if len(batch) >= self.batch_size:
                     result.append(tuple(zip(*batch)))
@@ -31,7 +34,7 @@ class SingleProcessor(Processor):
         if len(batch) > 0:
             result.append(tuple(zip(*batch)))
 
-        return result
+        return [self.batch_process(*batch) for batch in result]
 
 
 class PoolProcessor(Processor):
@@ -48,13 +51,13 @@ class PoolProcessor(Processor):
                     lines.append(line)
 
                     if len(lines) >= self.batch_size:
-                        result.append(tuple(zip(*pool.map(self.process, lines))))
+                        result.append(tuple(zip(*pool.map(self.preprocess, lines))))
                         lines = []
 
             if len(lines) > 0:
-                result.append(tuple(zip(*pool.map(self.process, lines))))
+                result.append(tuple(zip(*pool.map(self.preprocess, lines))))
 
-        return result
+        return [self.batch_process(*batch) for batch in result]
 
 
 if __name__ == "__main__":

@@ -18,7 +18,6 @@ class NearestNeighborBatch:
 
     def find(self, qid, query):
         '''
-
         :param qid: unique query id for each query vector
         :param query: [q_size, dim] vector array
         '''
@@ -28,6 +27,7 @@ class NearestNeighborBatch:
         qids = np.asarray(qids)
         db_ids = np.asarray(self.db_ids)[I]
         return np.stack([qids.repeat(self.k), db_ids.reshape(-1), D.reshape(-1)], axis=1)
+
 
 def merge_shards(shards, k:int):
     '''
@@ -50,11 +50,11 @@ class FaissNearestNeighborBatch(NearestNeighborBatch):
     def __init__(self, db_ids, db, k:int):
         assert isinstance(db, np.ndarray)
         super().__init__(db_ids, db, k)
+        self.index = faiss.IndexFlatIP(self.dim)
+        self.index.add(self.db)
 
     def find(self, qids, query):
-        index = faiss.IndexFlatIP(self.dim)
-        index.add(self.db)
-        D, I = index.search(query, self.k)
+        D, I = self.index.search(query, self.k)
         return self.format(D, I, qids)
 
 
@@ -134,6 +134,7 @@ if __name__ == '__main__':
                         help=f'top k nearest vectors per query; default: {default_config["topk"]}')
     parser.add_argument('--max_mem', type=int, default=default_config['max_mem'],
                         help=f'maximum memory in GB; default: {default_config["max_mem"]}')
+    parser.add_argument('--silent', action='store_true')
 
     args = parser.parse_args()
     if args.backend == 'faiss':
@@ -149,15 +150,18 @@ if __name__ == '__main__':
     else:
         raise ValueError
 
-    print(f"estimate mem: {estimate_memory(args.batch_size, args.shard_size, args.dim):.2f}GB", file=sys.stderr)
+    if not args.silent:
+        print(f"estimate mem: {estimate_memory(args.batch_size, args.shard_size, args.dim):.2f}GB", file=sys.stderr)
 
     for shard_idx, db in enumerate(read_batch_from_file(args.db_file, args.shard_size, args.sep)):
-        print(f"processing shard {shard_idx}...", file=sys.stderr)
+        if not args.silent:
+            print(f"processing shard {shard_idx}...", file=sys.stderr)
         db = change_type(*db, args.backend)
         solver = Solver(*db, args.topk)
         q_batch_result = []
         for qbatch_idx, q in enumerate(read_batch_from_file(args.query_file, args.batch_size, args.sep)):
-            print(f"processing query batch {qbatch_idx}...", file=sys.stderr)
+            if not args.silent:
+                print(f"processing query batch {qbatch_idx}...", file=sys.stderr)
             q = change_type(*q, args.backend)
             q_batch_result.append(solver.find(*q))
         shards.append(np.concatenate(q_batch_result))

@@ -1,6 +1,7 @@
 import argparse
 import sys
 import numpy as np
+import multiprocessing as mp
 
 
 class NearestNeighborBatch:
@@ -97,6 +98,29 @@ def read_batch_from_file(filename:str, batch_size:int, sep:str):
         yield ids, np.stack(vectors, axis=0)
 
 
+def process(line:str):
+    cols = line.split('\t')
+    vector = [float(x) for x in cols[1].split('|')]
+    return cols[0], vector
+
+
+def read_batch_from_file_mp(filename:str, batch_size:int, sep:str, nproc:int):
+    with mp.Pool(nproc) as pool:
+        with open(filename, 'r', encoding='utf-8') as f:
+            lines = []
+            for line in f:
+                lines.append(line)
+
+                if len(lines) >= batch_size:
+                    batch = tuple(zip(*pool.map(process, lines)))
+                    yield batch[0], np.asarray(batch[1], dtype=np.float32)
+                    lines = []
+
+        if len(lines) > 0:
+            batch = tuple(zip(*pool.map(process, lines)))
+            yield batch[0], np.asarray(batch[1], dtype=np.float32)
+
+
 def estimate_memory(n_q:int, n_db:int, dim:int):
     return ((n_q + n_db) * dim + n_q * n_db) * 4 / 1e9
 
@@ -135,6 +159,7 @@ if __name__ == '__main__':
     parser.add_argument('--max_mem', type=int, default=default_config['max_mem'],
                         help=f'maximum memory in GB; default: {default_config["max_mem"]}')
     parser.add_argument('--silent', action='store_true')
+    parser.add_argument('--nproc', type=int, default=0)
 
     args = parser.parse_args()
     if args.backend == 'faiss':
@@ -153,13 +178,19 @@ if __name__ == '__main__':
     if not args.silent:
         print(f"estimate mem: {estimate_memory(args.batch_size, args.shard_size, args.dim):.2f}GB", file=sys.stderr)
 
-    for shard_idx, db in enumerate(read_batch_from_file(args.db_file, args.shard_size, args.sep)):
+    if args.nproc == 0:
+        q_gen = read_batch_from_file(args.query_file, args.batch_size, args.sep)
+        db_gen = read_batch_from_file(args.db_file, args.shard_size, args.sep)
+    else:
+        q_gen = read_batch_from_file_mp(args.query_file, args.batch_size, args.sep, args.nproc)
+        db_gen = read_batch_from_file_mp(args.db_file, args.shard_size, args.sep, args.nproc)
+    for shard_idx, db in enumerate(db_gen):
         if not args.silent:
             print(f"processing shard {shard_idx}...", file=sys.stderr)
         db = change_type(*db, args.backend)
         solver = Solver(*db, args.topk)
         q_batch_result = []
-        for qbatch_idx, q in enumerate(read_batch_from_file(args.query_file, args.batch_size, args.sep)):
+        for qbatch_idx, q in enumerate(q_gen):
             if not args.silent:
                 print(f"processing query batch {qbatch_idx}...", file=sys.stderr)
             q = change_type(*q, args.backend)

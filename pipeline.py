@@ -12,8 +12,9 @@ class Pipeline(mp.Process):
 
     def run(self):
         for item in iter(self.queue_in.get, None):
-            print(f"{self}: {self.queue_out.qsize()}", file=sys.stderr)
+            # print(f"{self}: {self.queue_out.qsize()}", file=sys.stderr)
             self.queue_out.put(self.work(item))
+        print(f"{self}: complete; #output queue size: {self.queue_out.qsize()}", file=sys.stderr)
         self.queue_out.put(None)
 
 
@@ -29,6 +30,7 @@ class Adapter(mp.Process):
         for _ in range(self.nproc_in):
             for item in iter(self.queue_in.get, None):
                 self.queue_out.put(item)
+        print(f"{self}: complete; #output queue size: {self.queue_out.qsize()}", file=sys.stderr)
         for _ in range(self.nproc_out):
             self.queue_out.put(None)
 
@@ -49,6 +51,7 @@ class Batcher(mp.Process):
                 batch = []
         if batch:
             self.queue_out.put(batch)
+        print(f"{self}: complete; #output queue size: {self.queue_out.qsize()}", file=sys.stderr)
         self.queue_out.put(None)
 
 
@@ -79,6 +82,7 @@ class FileReader(mp.Process):
         with open(self.filename, 'r', encoding='utf-8') as f:
             for line in f:
                 self.queue.put(line)
+            print(f"{self}: complete; #output queue size: {self.queue.qsize()}", file=sys.stderr)
             self.queue.put(None)
 
 
@@ -92,6 +96,11 @@ def batch_process(batch):
     return [line_process(line) for line in batch]
 
 
+def f(q):
+    for item in iter(q.get, None):
+        pass
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--file", required=True)
@@ -102,9 +111,8 @@ if __name__ == "__main__":
     q1 = mp.Queue()
     FileReader(args.file, q1).start()
     q2 = mp.Queue()
-    Batcher(q1, q2, args.batch_size).start()
+    MultiWorkerPipeline(q1, q2, line_process, args.nproc).start()
     q3 = mp.Queue()
-    MultiWorkerPipeline(q2, q3, batch_process, args.nproc).start()
+    Batcher(q2, q3, args.batch_size).start()
 
-    for batch in iter(q3.get, None):
-        print(len(batch))
+    mp.Process(target=f, args=(q3,)).start()

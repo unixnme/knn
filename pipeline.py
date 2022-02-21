@@ -108,7 +108,5 @@ if __name__ == '__main__':
     q3 = mp.SimpleQueue()
     Batcher(q2, q3, args.batch_size).start()
     
-    count = 0
     for item in iter(q3.get, None):
-        count += 1
-        logging.debug(count)
+        pass
